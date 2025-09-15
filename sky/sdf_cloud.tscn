@@ -1,0 +1,47 @@
+[gd_scene load_steps=9 format=3 uid="uid://b2lhlmv6pufc4"]
+
+[ext_resource type="Shader" uid="uid://bd2tlf1g0mpqm" path="res://sky/sdf_cloud.gdshader" id="1_qiv7a"]
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_qiv7a"]
+noise_type = 2
+frequency = 0.05
+
+[sub_resource type="NoiseTexture3D" id="NoiseTexture3D_08rxn"]
+width = 128
+height = 32
+depth = 128
+seamless = true
+noise = SubResource("FastNoiseLite_qiv7a")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_86qjw"]
+shader = ExtResource("1_qiv7a")
+shader_parameter/cloudNoise = SubResource("NoiseTexture3D_08rxn")
+shader_parameter/cloudCoverage = 0.5
+
+[sub_resource type="Sky" id="Sky_lx85y"]
+sky_material = SubResource("ShaderMaterial_86qjw")
+
+[sub_resource type="Environment" id="Environment_sit3d"]
+background_mode = 2
+sky = SubResource("Sky_lx85y")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_puyt8"]
+metallic = 1.0
+roughness = 0.0
+
+[sub_resource type="SphereMesh" id="SphereMesh_86qjw"]
+
+[node name="Sky" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_sit3d")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.939693, 0.0119363, -0.341812, 0, 0.999391, 0.0348995, 0.34202, -0.0327948, 0.93912, 0, 0, 0)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+material_override = SubResource("StandardMaterial3D_puyt8")
+mesh = SubResource("SphereMesh_86qjw")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(-0.707107, 0, 0.707107, 0, 1, 0, -0.707107, 0, -0.707107, 2, 0, -2)
