@@ -167,7 +167,7 @@ vec3 raymarchScattering(vec3 pos, vec3 rayDir, vec3 sunDir, inout TransmittanceL
 	pos += dstToAtmosphere*rayDir;
 
 	cache.from = pos + 0.3 * stepSize * rayDir;
-	cache.to = pos + (0.3 + float(raymarchScatteringSteps - 1)) * stepSize;
+	cache.to = pos + (0.3 + float(raymarchScatteringSteps - 1)) * stepSize * rayDir;
 
 	for (int i = 0; i < raymarchScatteringSteps; i++) {
 		float dt = (i == 0 ? 0.3 : 1.0) * stepSize;
@@ -302,7 +302,7 @@ vec4 raymarchCloud(vec3 pos, vec3 rayDir, vec3 sunDir, in TransmittanceLookup ca
 			i += 8;
 
 			vec3 dir = cache.to - cache.from;
-    		float value = clamp(dot(pos - cache.from, dir) / dot(dir, dir), 0.0, 1.0) * float(raymarchScatteringSteps - 1);
+			float value = clamp(dot(pos - cache.from, dir) / dot(dir, dir), 0.0, 1.0) * float(raymarchScatteringSteps - 1);
 
 			int index = int(value);
 			float frac = fract(value);
