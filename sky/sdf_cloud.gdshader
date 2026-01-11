@@ -6,13 +6,18 @@
  */
 
 shader_type sky;
-render_mode use_debanding, use_quarter_res_pass;
+render_mode use_debanding;
 
 
 /**
  * 128x32x128 Worley noise
  */
-uniform sampler3D cloudNoise: filter_linear;
+uniform sampler3D cloudNoise;
+
+/**
+ * transmittance lookup table
+ */
+uniform sampler2D transmittanceLUT;
 
 /**
  * Controls the overall density of clouds in the sky.
@@ -41,15 +46,7 @@ const vec3 ozoneAbsorptionBase = vec3(0.650, 1.881, .085);
 const vec3 ozoneExtinctionBase = ozoneScatteringBase + ozoneAbsorptionBase;
 
 // Steps
-const int sunTransmittanceSteps = 8;
 const int raymarchScatteringSteps = 8;
-
-
-struct TransmittanceLookup {
-	vec3 transmittance[raymarchScatteringSteps];
-	vec3 from;
-	vec3 to;
-};
 
 
 // Cornette-Shanks phase function
@@ -112,9 +109,9 @@ bool isIntersectSphere(vec3 ro, vec3 rd, float rad) {
 vec2 rayIntersectSphere(vec3 ro, vec3 rd, float rad) {
 	float b = dot(ro, rd);
 	float c = dot(ro, ro) - rad*rad;
-	if (c > 0.0 && b > 0.0) return vec2(1./0., 0.0);
+	if (c > 0.0 && b > 0.0) return vec2(1e32, 0.0);
 	float d = b*b - c;
-	if (d < 0.0) return vec2(1./0., 0.0);
+	if (d < 0.0) return vec2(1e32, 0.0);
 	float s = sqrt(d);
 	if (c < 0.0) return vec2(0.0, -b + s);
 	return vec2(-b - s, s + s);
@@ -122,31 +119,16 @@ vec2 rayIntersectSphere(vec3 ro, vec3 rd, float rad) {
 
 
 vec3 getSunTransmittance(vec3 pos, vec3 sunDir) {
-	if (isIntersectSphere(pos, sunDir, groundRadiusMM)) {
-		return vec3(0.0);
-	}
-
-	vec2 hitInfo = rayIntersectSphere(pos, sunDir, atmosphereRadiusMM);
-
-	float stepSize = hitInfo.y / float(sunTransmittanceSteps);
-	pos += hitInfo.x*sunDir;
-
-	vec3 transmittance = vec3(1.0);
-	for (int i = 0; i < sunTransmittanceSteps; i++) {
-		float dt = (i == 0 ? 0.3 : 1.0) * stepSize;
-		pos += dt * sunDir;
-
-		vec3 rayleighScattering, extinction;
-		float mieScattering;
-		getScatteringValues(pos, rayleighScattering, mieScattering, extinction);
-
-		transmittance *= exp(-dt*extinction);
-	}
-	return transmittance;
+	float height = length(pos);
+	float height_relative = (height - groundRadiusMM)/(atmosphereRadiusMM - groundRadiusMM);
+	vec3 up = pos / height;
+	float cos_zenith = dot(sunDir, up);
+	vec2 uv = vec2(clamp(0.5 + 0.5*cos_zenith, 0.0, 1.0), clamp(height_relative, 0.0, 1.0));
+	return texture(transmittanceLUT, uv).rgb;
 }
 
 
-vec3 raymarchScattering(vec3 pos, vec3 rayDir, vec3 sunDir, inout TransmittanceLookup cache) {
+vec3 raymarchScattering(vec3 pos, vec3 rayDir, vec3 sunDir) {
 	vec2 hitInfoAtmosphere = rayIntersectSphere(pos, rayDir, atmosphereRadiusMM);
 	vec2 hitInfoGround = rayIntersectSphere(pos, rayDir, groundRadiusMM);
 
@@ -166,9 +148,6 @@ vec3 raymarchScattering(vec3 pos, vec3 rayDir, vec3 sunDir, inout TransmittanceL
 	vec3 transmittance = vec3(1.0);
 	pos += dstToAtmosphere*rayDir;
 
-	cache.from = pos + 0.3 * stepSize * rayDir;
-	cache.to = pos + (0.3 + float(raymarchScatteringSteps - 1)) * stepSize * rayDir;
-
 	for (int i = 0; i < raymarchScatteringSteps; i++) {
 		float dt = (i == 0 ? 0.3 : 1.0) * stepSize;
 		pos += dt*rayDir;
@@ -180,7 +159,6 @@ vec3 raymarchScattering(vec3 pos, vec3 rayDir, vec3 sunDir, inout TransmittanceL
 		vec3 sampleTransmittance = exp(-dt*extinction);
 
 		vec3 sunTransmittance = getSunTransmittance(pos, sunDir);
-		cache.transmittance[i] = sunTransmittance;
 
 		const vec3 psiMS = vec3(0.0); // multiple-scattering here
 
@@ -229,47 +207,40 @@ float sdf_smoothIntersection(float d1, float d2, float k)
 }
 
 
-float sdf_cloud(vec3 pos) {
+float sdf_cloud(vec3 pos, float time) {
 	float len = length(pos);
 	float shape = max(len - cloudTopMM, cloudBottomMM - len);
 
-	float cloud = texture(cloudNoise, pos * vec3(5.0, 20.0, 5.0) + TIME * vec3(0.0003, 0.0, 0.0002)).r;
-	float noise = texture(cloudNoise, pos * vec3(100.0, 400.0, 100.0) + TIME * vec3(0.01, 0.0, 0.03)).r;
+	float cloud = texture(cloudNoise, pos * vec3(5.0, 20.0, 5.0) + time * vec3(0.0003, 0.0, 0.0002)).r;
+	float noise = texture(cloudNoise, pos * vec3(100.0, 400.0, 100.0) + time * vec3(0.01, 0.0, 0.03)).r;
 
 	return sdf_smoothIntersection(shape, (cloud - cloudCoverage) * 0.01 - (noise - cloudCoverage) * 0.0005, 0.001);
 }
 
 
 float cloud_density(float sdf) {
-	return clamp(sdf * -1e7, 0.0, 500.0);
+	return clamp(sdf * -1e7, 0.0, 200.0);
 }
 
 
-float getCloudTransmittance(vec3 pos, vec3 sunDir) {
+float getCloudTransmittance(vec3 pos, vec3 sunDir, float time) {
 	if (isIntersectSphere(pos, sunDir, groundRadiusMM)) {
 		return 0.0;
 	}
 	float transmittance = 1.0;
-	const float dt = 0.001; // 1000m
-	for (int i = 0; i < 16; i++) {
-		float sdf = sdf_cloud(pos);
-		if (sdf > 0.01) {
-			break;
-		}
+	const float dt = 0.002; // 2000m
+	for (int i = 0; i < 4; i++) {
+		float sdf = sdf_cloud(pos, time);
 		if (sdf < 0.0) {
-			i += 2;
 			float density = cloud_density(sdf);
 			transmittance *= exp(-dt*density);
-			if (transmittance < 0.01) {
-				return 0.0;
-			}
 		}
 		pos += (sdf < 0.0 ? dt : max(sdf, dt)) * sunDir;
 	}
 	return transmittance;
 }
 
-vec4 raymarchCloud(vec3 pos, vec3 rayDir, vec3 sunDir, in TransmittanceLookup cache) {
+vec4 raymarchCloud(vec3 pos, vec3 rayDir, vec3 sunDir, float time) {
 	bool hitTop = isIntersectSphere(pos, rayDir, cloudTopMM);
 	bool hitGnd = isIntersectSphere(pos, rayDir, groundRadiusMM);
 	float len = length(pos);
@@ -290,27 +261,18 @@ vec4 raymarchCloud(vec3 pos, vec3 rayDir, vec3 sunDir, in TransmittanceLookup ca
 
 	vec3 lum = vec3(0.0);
 	float transmittance = 1.0;
-	const float dt = 0.0005; // 500m
+	const float dt = 0.002; // 2000m
 
-	for (int i = 0; i < 128; i++) {
-		float sdf = sdf_cloud(pos);
+	for (int i = 0; i < 64; i++) {
+		float sdf = sdf_cloud(pos, time);
 		if (sdf > 0.01) {
 			break;
 		}
 		if (sdf < 0.0) {
-			// inside cloud
-			i += 8;
 
-			vec3 dir = cache.to - cache.from;
-			float value = clamp(dot(pos - cache.from, dir) / dot(dir, dir), 0.0, 1.0) * float(raymarchScatteringSteps - 1);
+			vec3 sunTransmittance = getSunTransmittance(pos, sunDir);
 
-			int index = int(value);
-			float frac = fract(value);
-
-			vec3 sunTransmittance = index == (raymarchScatteringSteps-1) ? cache.transmittance[index] :
-					mix(cache.transmittance[index], cache.transmittance[index+1], frac);
-
-			sunTransmittance *= getCloudTransmittance(pos, sunDir);
+			sunTransmittance *= getCloudTransmittance(pos, sunDir, time);
 			float density = cloud_density(sdf);
 
 			float extinction = density;
@@ -340,17 +302,13 @@ vec4 raymarchCloud(vec3 pos, vec3 rayDir, vec3 sunDir, in TransmittanceLookup ca
 
 void sky()
 {
-	if (AT_QUARTER_RES_PASS) {
 	vec3 sunDir = normalize(LIGHT0_DIRECTION);
 	vec3 rayDir = normalize(EYEDIR);
 
 	// 200M above the ground.
 	vec3 viewPos = vec3(0.0, groundRadiusMM + 0.0002, 0.0) + POSITION * 1e-6;
 
-	// Transmittance Lookup
-	TransmittanceLookup cache;
-
-	vec3 lum = raymarchScattering(viewPos, rayDir, sunDir, cache);
+	vec3 lum = raymarchScattering(viewPos, rayDir, sunDir);
 
 	// Bloom should be added at the end, but this is subtle and works well.
 	vec3 sunLum = sunWithBloom(rayDir, sunDir);
@@ -367,7 +325,7 @@ void sky()
 	lum += sunLum;
 
 	// Cloud
-	vec4 cloud = raymarchCloud(viewPos, rayDir, sunDir, cache);
+	vec4 cloud = raymarchCloud(viewPos, rayDir, sunDir, TIME);
 	lum = mix(cloud.rgb, lum, cloud.a);
 
 	// Tonemapping and gamma. Super ad-hoc, probably a better way to do this.
@@ -380,7 +338,4 @@ void sky()
 	lum = pow(lum, vec3(1.0/2.2));
 
 	COLOR = lum;
-	} else {
-		COLOR = QUARTER_RES_COLOR.rgb;
-	}
 }

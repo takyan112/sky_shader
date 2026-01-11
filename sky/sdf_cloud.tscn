@@ -1,6 +1,7 @@
-[gd_scene load_steps=9 format=3 uid="uid://b2lhlmv6pufc4"]
+[gd_scene load_steps=10 format=3 uid="uid://b2lhlmv6pufc4"]
 
 [ext_resource type="Shader" uid="uid://bd2tlf1g0mpqm" path="res://sky/sdf_cloud.gdshader" id="1_qiv7a"]
+[ext_resource type="Texture2D" uid="uid://ct6ag3fwom30a" path="res://sky/lut.png" id="2_08rxn"]
 
 [sub_resource type="FastNoiseLite" id="FastNoiseLite_qiv7a"]
 noise_type = 2
@@ -16,6 +17,7 @@ noise = SubResource("FastNoiseLite_qiv7a")
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_86qjw"]
 shader = ExtResource("1_qiv7a")
 shader_parameter/cloudNoise = SubResource("NoiseTexture3D_08rxn")
+shader_parameter/transmittanceLUT = ExtResource("2_08rxn")
 shader_parameter/cloudCoverage = 0.5
 
 [sub_resource type="Sky" id="Sky_lx85y"]

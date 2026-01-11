@@ -30,7 +30,7 @@
  */
 
 shader_type sky;
-render_mode use_debanding, use_quarter_res_pass;
+render_mode use_debanding;
 
 // Units are in megameters.
 const float groundRadiusMM = 6.360;

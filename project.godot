@@ -12,5 +12,10 @@ config_version=5
 
 config/name="Sky Shader"
 run/main_scene="uid://b2lhlmv6pufc4"
-config/features=PackedStringArray("4.4", "Forward Plus")
+config/features=PackedStringArray("4.5", "Forward Plus")
 config/icon="res://icon.svg"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
